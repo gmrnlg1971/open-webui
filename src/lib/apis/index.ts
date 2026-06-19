@@ -788,7 +788,8 @@ export const generateTitle = async (
 
 	try {
 		// Step 1: Safely extract the response string
-		const response = res?.choices[0]?.message?.content ?? '';
+		let response = res?.choices[0]?.message?.content ?? '';
+		response = response.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
 		// Step 2: Attempt to fix common JSON format issues like single quotes
 		const sanitizedResponse = response.replace(/['‘’`]/g, '"'); // Convert single quotes to double quotes for valid JSON
@@ -860,7 +861,8 @@ export const generateTags = async (
 
 	try {
 		// Step 1: Safely extract the response string
-		const response = res?.choices[0]?.message?.content ?? '';
+		let response = res?.choices[0]?.message?.content ?? '';
+		response = response.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
 		// Step 2: Attempt to fix common JSON format issues like single quotes
 		const sanitizedResponse = response.replace(/['‘’`]/g, '"'); // Convert single quotes to double quotes for valid JSON
@@ -983,7 +985,8 @@ export const generateQueries = async (
 	}
 
 	// Step 1: Safely extract the response string
-	const response = res?.choices[0]?.message?.content ?? '';
+	let response = res?.choices[0]?.message?.content ?? '';
+	response = response.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
 	try {
 		const jsonStartIndex = response.indexOf('{');
@@ -1056,7 +1059,8 @@ export const generateAutoCompletion = async (
 		throw error;
 	}
 
-	const response = res?.choices[0]?.message?.content ?? '';
+	let response = res?.choices[0]?.message?.content ?? '';
+	response = response.replace(/<think>[\s\S]*?<\/think>/gi, '');
 
 	try {
 		const jsonStartIndex = response.indexOf('{');
