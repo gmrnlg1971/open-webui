@@ -1358,7 +1358,11 @@ def merge_docs_to_target_size(
     return result
 
 
-def save_docs_to_vector_db(
+
+# In-memory cache for embeddings to improve latency
+_EMBEDDING_CACHE = {}
+
+async def save_docs_to_vector_db(
     request: Request,
     docs,
     collection_name,
@@ -1388,7 +1392,8 @@ def save_docs_to_vector_db(
 
     # Check if entries with the same hash (metadata.hash) already exist
     if metadata and 'hash' in metadata:
-        result = VECTOR_DB_CLIENT.query(
+        from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
+        result = await ASYNC_VECTOR_DB_CLIENT.query(
             collection_name=collection_name,
             filter={'hash': metadata['hash']},
         )
@@ -1477,11 +1482,12 @@ def save_docs_to_vector_db(
     ]
 
     try:
-        if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
+        from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
+        if await ASYNC_VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
             log.info(f'collection {collection_name} already exists')
 
             if overwrite:
-                VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
+                await ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
                 log.info(f'deleting existing collection {collection_name}')
             elif add is False:
                 log.info(f'collection {collection_name} already exists, overwrite is False and add is False')
@@ -1520,38 +1526,59 @@ def save_docs_to_vector_db(
             concurrent_requests=request.app.state.config.RAG_EMBEDDING_CONCURRENT_REQUESTS,
         )
 
-        # Run async embedding in sync context using the main event loop
-        # This allows the main loop to stay responsive to health checks during long operations
-        embedding_timeout = RAG_EMBEDDING_TIMEOUT
-
-        future = asyncio.run_coroutine_threadsafe(
-            embedding_function(
-                list(map(lambda x: x.replace('\n', ' '), texts)),
-                prefix=RAG_EMBEDDING_CONTENT_PREFIX,
-                user=user,
-            ),
-            request.app.state.main_loop,
-        )
-        embeddings = future.result(timeout=embedding_timeout)
-        log.info(f'embeddings generated {len(embeddings)} for {len(texts)} items')
-
-        items = [
-            {
-                'id': str(uuid.uuid4()),
-                'text': text,
-                'vector': embeddings[idx],
-                'metadata': metadatas[idx],
-            }
-            for idx, text in enumerate(texts)
-        ]
-
-        log.info(f'adding to collection {collection_name}')
-        VECTOR_DB_CLIENT.insert(
-            collection_name=collection_name,
-            items=items,
-        )
-
-        log.info(f'added {len(items)} items to collection {collection_name}')
+        # Implement pipeline parallelism, batched async embedding, and caching
+        batch_size = request.app.state.config.RAG_EMBEDDING_BATCH_SIZE
+        if not batch_size:
+            batch_size = 32
+        
+        insert_tasks = []
+        clean_texts = list(map(lambda x: x.replace('\n', ' '), texts))
+        
+        cache_prefix = f"{request.app.state.config.RAG_EMBEDDING_ENGINE}_{request.app.state.config.RAG_EMBEDDING_MODEL}_"
+        
+        for i in range(0, len(clean_texts), batch_size):
+            batch_texts = clean_texts[i:i + batch_size]
+            batch_metadatas = metadatas[i:i + batch_size]
+            
+            # Identify which texts need embedding (caching logic)
+            texts_to_embed = []
+            cached_embeddings = {}
+            for text in batch_texts:
+                cache_key = cache_prefix + text
+                if cache_key in _EMBEDDING_CACHE:
+                    cached_embeddings[text] = _EMBEDDING_CACHE[cache_key]
+                elif text not in texts_to_embed:
+                    texts_to_embed.append(text)
+            
+            if texts_to_embed:
+                # Batched async embedding
+                new_embeddings = await embedding_function(
+                    texts_to_embed,
+                    prefix=RAG_EMBEDDING_CONTENT_PREFIX,
+                    user=user,
+                )
+                for t, e in zip(texts_to_embed, new_embeddings):
+                    _EMBEDDING_CACHE[cache_prefix + t] = e
+                    cached_embeddings[t] = e
+            
+            # Construct items for vector DB
+            items = []
+            for j, text in enumerate(batch_texts):
+                items.append({
+                    'id': str(uuid.uuid4()),
+                    'text': text,
+                    'vector': cached_embeddings[text],
+                    'metadata': batch_metadatas[j],
+                })
+            
+            # Pipeline parallelism: queue the insertion task to run concurrently with the next batch's embedding
+            insert_task = asyncio.create_task(ASYNC_VECTOR_DB_CLIENT.insert(collection_name=collection_name, items=items))
+            insert_tasks.append(insert_task)
+            
+        # Wait for all insertion tasks to complete
+        await asyncio.gather(*insert_tasks)
+        
+        log.info(f'added {len(clean_texts)} items to collection {collection_name}')
         return True
     except Exception as e:
         log.exception(e)
@@ -1714,9 +1741,8 @@ async def process_file(
                     # calls asyncio.run_coroutine_threadsafe(..., main_loop).result()
                     # which blocks the calling thread.  We MUST run it in a
                     # worker thread to avoid deadlocking the event loop.
-                    result = await run_in_threadpool(
-                        save_docs_to_vector_db,
-                        request,
+                    result = await save_docs_to_vector_db(
+request,
                         docs=docs,
                         collection_name=collection_name,
                         metadata={
@@ -1812,7 +1838,8 @@ async def process_text(
     text_content = form_data.content
     log.debug(f'text_content: {text_content}')
 
-    result = await run_in_threadpool(save_docs_to_vector_db, request, docs, collection_name, user=user)
+    result = await save_docs_to_vector_db(
+request, docs, collection_name, user=user)
     if result:
         return {
             'status': True,
@@ -1847,9 +1874,8 @@ async def process_web(
                 await _validate_collection_access([collection_name], user, access_type='write')
 
             if not request.app.state.config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL:
-                await run_in_threadpool(
-                    save_docs_to_vector_db,
-                    request,
+                await save_docs_to_vector_db(
+request,
                     docs,
                     collection_name,
                     overwrite=overwrite,
@@ -2339,9 +2365,8 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
             collection_name = f'web-search-{calculate_sha256_string("-".join(form_data.queries))}'[:63]
 
             try:
-                await run_in_threadpool(
-                    save_docs_to_vector_db,
-                    request,
+                await save_docs_to_vector_db(
+request,
                     docs,
                     collection_name,
                     overwrite=True,
@@ -2707,9 +2732,8 @@ async def process_files_batch(
     # Save all documents in one batch
     if all_docs:
         try:
-            await run_in_threadpool(
-                save_docs_to_vector_db,
-                request,
+            await save_docs_to_vector_db(
+request,
                 all_docs,
                 collection_name,
                 add=True,
