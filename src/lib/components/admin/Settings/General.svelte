@@ -23,6 +23,7 @@
 	import { onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import Textarea from '$lib/components/common/Textarea.svelte';
+	import WebhookDeliveriesModal from './WebhookDeliveriesModal.svelte';
 	import Banners from './Interface/Banners.svelte';
 
 	const i18n = getContext('i18n');
@@ -34,9 +35,10 @@
 		current: '',
 		latest: ''
 	};
+	let webhookUrl = '';
+	let showWebhookDeliveriesModal = false;
 
 	let adminConfig = null;
-	let webhookUrl = '';
 	let groups = [];
 
 	let banners: Banner[] = [];
@@ -839,6 +841,12 @@
 								placeholder={`https://example.com/webhook`}
 								bind:value={webhookUrl}
 							/>
+							<button
+								class="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg whitespace-nowrap hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+								on:click={() => (showWebhookDeliveriesModal = true)}
+							>
+								{$i18n.t('View Deliveries')}
+							</button>
 						</div>
 					</div>
 				</div>
@@ -902,3 +910,5 @@
 		</button>
 	</div>
 </form>
+
+<WebhookDeliveriesModal bind:show={showWebhookDeliveriesModal} />

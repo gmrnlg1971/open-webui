@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -10,8 +11,40 @@ from open_webui.env import (
     VERSION,
 )
 from open_webui.retrieval.web.utils import validate_url
+from open_webui.models.webhooks import WebhookDeliveries
 
 log = logging.getLogger(__name__)
+
+
+async def _retry_webhook(delivery_id: str, url: str, payload: dict):
+    MAX_RETRIES = 3
+    RETRY_DELAY = 5 # seconds
+
+    for attempt in range(1, MAX_RETRIES):
+        await asyncio.sleep(RETRY_DELAY * (2 ** attempt)) # exponential backoff
+        try:
+            async with aiohttp.ClientSession(
+                trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+            ) as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
+                ) as r:
+                    r_text = await r.text()
+                    r.raise_for_status()
+                    log.debug(f'r.text: {r_text}')
+                    
+            # Update delivery status to success
+            await WebhookDeliveries.update_delivery(delivery_id=delivery_id, status='success', retries=attempt)
+            return
+        except Exception as e:
+            log.exception(e)
+            if attempt < MAX_RETRIES - 1:
+                await WebhookDeliveries.update_delivery(delivery_id=delivery_id, status='pending', retries=attempt, error=str(e))
+            else:
+                await WebhookDeliveries.update_delivery(delivery_id=delivery_id, status='failed', retries=attempt, error=str(e))
 
 
 # Let this message reach those for whom it was written, and
@@ -60,20 +93,35 @@ async def post_webhook(name: str, url: str, message: str, event_data: dict) -> b
             payload = {**event_data}
 
         log.debug(f'payload: {payload}')
-        async with aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
-        ) as session:
-            async with session.post(
-                url,
-                json=payload,
-                ssl=AIOHTTP_CLIENT_SESSION_SSL,
-                allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
-            ) as r:
-                r_text = await r.text()
-                r.raise_for_status()
-                log.debug(f'r.text: {r_text}')
+        
+        # Record initial delivery
+        delivery = await WebhookDeliveries.insert_new_delivery(url=url, name=name, message=message, event_data=event_data)
+        
+        try:
+            async with aiohttp.ClientSession(
+                trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+            ) as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
+                ) as r:
+                    r_text = await r.text()
+                    r.raise_for_status()
+                    log.debug(f'r.text: {r_text}')
+                    
+            # Update delivery status to success
+            await WebhookDeliveries.update_delivery(delivery_id=delivery.id, status='success', retries=0)
+            return True
+        except Exception as e:
+            log.exception(e)
+            await WebhookDeliveries.update_delivery(delivery_id=delivery.id, status='pending', retries=0, error=str(e))
+            # Spawn background task for retries
+            asyncio.create_task(_retry_webhook(delivery.id, url, payload))
+            return False
 
-        return True
     except Exception as e:
         log.exception(e)
         return False
+

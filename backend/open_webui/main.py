@@ -2557,6 +2557,12 @@ async def update_webhook_url(form_data: UrlForm, user=Depends(get_admin_user)):
     return {'url': app.state.config.WEBHOOK_URL}
 
 
+@app.get('/api/webhook/deliveries')
+async def get_webhook_deliveries(user=Depends(get_admin_user)):
+    from open_webui.models.webhooks import WebhookDeliveries
+    return await WebhookDeliveries.get_deliveries()
+
+
 @app.get('/api/version')
 async def get_app_version():
     return {
