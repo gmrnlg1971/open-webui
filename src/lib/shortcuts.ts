@@ -41,9 +41,13 @@ export enum Shortcut {
 	COPY_LAST_CODE_BLOCK = 'copyLastCodeBlock',
 	COPY_LAST_RESPONSE = 'copyLastResponse',
 	STOP_GENERATING = 'stopGenerating',
+	SUBMIT_EDITED_MESSAGE = 'submitEditedMessage',
 
 	//Voice
-	TOGGLE_MUTE = 'toggleMute'
+	TOGGLE_MUTE = 'toggleMute',
+
+	//Playground
+	PLAYGROUND_RUN_IMAGE_PROMPT = 'playgroundRunImagePrompt'
 }
 
 export const shortcuts: ShortcutRegistry = {
@@ -168,6 +172,12 @@ export const shortcuts: ShortcutRegistry = {
 		keys: ['mod', 'shift', ';'],
 		category: 'Message'
 	},
+	[Shortcut.SUBMIT_EDITED_MESSAGE]: {
+		name: 'Submit Edited Message',
+		keys: ['mod', 'Enter'],
+		category: 'Message',
+		tooltip: 'Only active when editing a message.'
+	},
 
 	//Voice
 	[Shortcut.TOGGLE_MUTE]: {
@@ -175,5 +185,13 @@ export const shortcuts: ShortcutRegistry = {
 		keys: ['M'],
 		category: 'Voice',
 		tooltip: 'Only active during Voice Mode.'
+	},
+
+	//Playground
+	[Shortcut.PLAYGROUND_RUN_IMAGE_PROMPT]: {
+		name: 'Run Image Prompt',
+		keys: ['mod', 'Enter'],
+		category: 'Playground',
+		tooltip: 'Only active when the image prompt input is in focus.'
 	}
 };

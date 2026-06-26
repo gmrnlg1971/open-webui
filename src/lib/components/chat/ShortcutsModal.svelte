@@ -69,6 +69,7 @@
 						<!-- {$i18n.t('Global')} -->
 						<!-- {$i18n.t('Input')} -->
 						<!-- {$i18n.t('Message')} -->
+						<!-- {$i18n.t('Playground')} -->
 
 						<!-- {$i18n.t('New Chat')} -->
 						<!-- {$i18n.t('New Temporary Chat')} -->
@@ -90,13 +91,17 @@
 						<!-- {$i18n.t('Regenerate Response')} -->
 						<!-- {$i18n.t('Stop Generating')} -->
 						<!-- {$i18n.t('Edit Last Message')} -->
+						<!-- {$i18n.t('Submit Edited Message')} -->
 						<!-- {$i18n.t('Copy Last Response')} -->
 						<!-- {$i18n.t('Copy Last Code Block')} -->
+						<!-- {$i18n.t('Run Image Prompt')} -->
 
 						<!-- {$i18n.t('Only active when "Paste Large Text as File" setting is toggled on.')} -->
 						<!-- {$i18n.t('Only active when the chat input is in focus.')} -->
 						<!-- {$i18n.t('Only active when the chat input is in focus and an LLM is generating a response.')} -->
 						<!-- {$i18n.t('Only can be triggered when the chat input is in focus.')} -->
+						<!-- {$i18n.t('Only active when editing a message.')} -->
+						<!-- {$i18n.t('Only active when the image prompt input is in focus.')} -->
 
 						<!-- {$i18n.t('Voice')} -->
 						<!-- {$i18n.t('Toggle Mute')} -->
